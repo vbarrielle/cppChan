@@ -44,8 +44,12 @@ channel<T>::operator<<( const T & val )
 
   bool pushed = false;
   m_queueMutex.lock( );
-  if ( m_values.size( ) <= (size_t) m_capacity )
+  if ( m_values.size( ) < (size_t) m_capacity )
   {
+    if ( m_values.size( ) == 0 )
+    {
+      // unblock the getter..
+    }
     m_values.push( val );
     pushed  = true;
   }
@@ -54,6 +58,7 @@ channel<T>::operator<<( const T & val )
   if ( pushed )
     return;
 
+  // TODO: we should not wait for the stack to expire...
   sync_set( val );
 }
 
@@ -71,6 +76,12 @@ void channel<T>::operator>>( T & retVal )
   m_queueMutex.lock( );
   if ( m_values.size( ) > 0 )
   {
+    if ( m_values.size( ) == m_capacity )
+    {
+      // unblock the setter by getting its value
+      T blockingVal = sync_get( );
+      m_values.push( blockingVal );
+    }
     res = m_values.front( );
     m_values.pop( );
     pulled  = true;
