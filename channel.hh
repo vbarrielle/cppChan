@@ -17,85 +17,103 @@ public:
 private:
   void sync_set( const T & val );
   T sync_get( );
+  bool waitForReader( );
+  bool waitForWritter( );
+  void unblockReader( );
+  void unblockWritter( );
 
 private:
   int m_capacity;
+  std::atomic_bool m_blockedReader;
+  std::atomic_bool m_blockedWritter;
   std::queue<T> m_values;
   std::promise<T>    m_uniqueValue;
   std::promise<void> m_wantsValuePromise;
+  std::promise<void> m_setsValuePromise;
   std::mutex m_queueMutex;
 };
 
 
 template <typename T>
 channel<T>::channel( int capacity ) :
-  m_capacity( capacity )
+  m_capacity( capacity ),
+  m_blockedReader( false ),
+  m_blockedWritter( false )
 { }
 
 template <typename T>
 void
 channel<T>::operator<<( const T & val )
 {
+  std::cerr << this << " entering setter\n";
   if ( m_capacity == 0 )
   {
+    std::cerr << this << " sync set\n";
     sync_set( val );
     return;
   }
+  std::cerr << this << " queue set\n";
 
-  bool pushed = false;
-  m_queueMutex.lock( );
-  if ( m_values.size( ) < (size_t) m_capacity )
+  do 
   {
-    if ( m_values.size( ) == 0 )
+    bool pushed = false;
+    std::cerr << this << " setter locking\n";
+    m_queueMutex.lock( );
+    std::cerr << this << " setter locked\n";
+    if ( m_values.size( ) < (size_t) m_capacity )
     {
-      // unblock the getter..
+      m_values.push( val );
+      pushed = true;
     }
-    m_values.push( val );
-    pushed  = true;
-  }
-  m_queueMutex.unlock( );
+    std::cerr << this << " setter unlocking\n";
+    m_queueMutex.unlock( );
+    std::cerr << this << " setter unlocked\n";
 
-  if ( pushed )
-    return;
+    if ( pushed )
+    {
+      unblockReader( );
+      return;
+    }
+  } while( waitForReader( ) );
 
-  // TODO: we should not wait for the stack to expire...
-  sync_set( val );
 }
 
 template <typename T>
 void channel<T>::operator>>( T & retVal )
 {
+  std::cerr << this << " entering getter\n";
   if ( m_capacity == 0 )
   {
+    std::cerr << this << " sync get\n";
     retVal = sync_get( );
     return;
   }
 
-  bool pulled = false;
-  T res;
-  m_queueMutex.lock( );
-  if ( m_values.size( ) > 0 )
+  std::cerr << this << " queue get\n";
+  do 
   {
-    if ( m_values.size( ) == m_capacity )
+    bool pulled = false;
+    T res;
+    std::cerr << this << " getter locking\n";
+    m_queueMutex.lock( );
+    std::cerr << this << " getter locked\n";
+    if ( m_values.size( ) > 0 )
     {
-      // unblock the setter by getting its value
-      T blockingVal = sync_get( );
-      m_values.push( blockingVal );
+      res = m_values.front( );
+      m_values.pop( );
+      pulled  = true;
     }
-    res = m_values.front( );
-    m_values.pop( );
-    pulled  = true;
-  }
-  m_queueMutex.unlock( );
+    std::cerr << this << " getter unlocking\n";
+    m_queueMutex.unlock( );
+    std::cerr << this << " getter unlocked\n";
 
-  if ( pulled )
-  {
-    retVal = res;
-    return;
-  }
-
-  retVal = sync_get( );
-  return;
+    if ( pulled )
+    {
+      retVal = res;
+      unblockWritter( );
+      return;
+    }
+  } while ( waitForWritter( ) );
 }
 
 template <typename T>
@@ -128,6 +146,74 @@ channel<T>::sync_get( )
   std::swap( m_uniqueValue, newPromise );
 
   return res;
+}
+
+void
+wait( std::atomic_bool & blocked, std::promise<void> & promise )
+{
+  std::cerr << "wait: atomic store begin\n";
+  std::cerr << "wait: atomic value: " << blocked.load( ) << "\n";
+  blocked.store( true );
+  std::cerr << "wait: atomic value: " << blocked.load( ) << "\n";
+  std::cerr << "wait: atomic store end\n";
+  auto resFuture = promise.get_future( );
+  std::cerr << "wait: future get\n";
+  resFuture.get( );
+  std::cerr << "wait: future retrieve\n";
+  std::promise<void> newPromise;
+  std::swap( promise, newPromise );
+}
+
+void
+unblock( std::atomic_bool & blocked, std::promise<void> & promise )
+{
+  bool trueVal = true;
+  std::cerr << "unblock: atomic value: " << blocked.load( ) << "\n";
+  if ( blocked.compare_exchange_strong( trueVal, false ) )
+  {
+    promise.set_value( );
+    std::cerr << "unblock: was blocked\n";
+  }
+}
+
+template <typename T>
+bool
+channel<T>::waitForReader( )
+{
+  std::cerr << this << " waiting for a reader\n";
+  wait( m_blockedWritter, m_setsValuePromise );
+  std::cerr << this << " found a reader\n";
+  return true;
+}
+
+
+template <typename T>
+bool
+channel<T>::waitForWritter( )
+{
+  std::cerr << this << " waiting for a writter\n";
+  wait( m_blockedReader, m_wantsValuePromise );
+  std::cerr << this << " found a writter\n";
+  return true;
+}
+
+
+template <typename T>
+void
+channel<T>::unblockWritter( )
+{
+  std::cerr << this << " unblocking a writter\n";
+  unblock( m_blockedWritter, m_setsValuePromise );
+  std::cerr << this << " unblocked a writter\n";
+}
+
+template <typename T>
+void
+channel<T>::unblockReader( )
+{
+  std::cerr << this << " unblocking a reader\n";
+  unblock( m_blockedReader, m_wantsValuePromise );
+  std::cerr << this << " unblocked a reader\n";
 }
 
 #endif // CPPCHAN_CHANNEL_H
