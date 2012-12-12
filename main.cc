@@ -12,7 +12,7 @@ main( int argc, char ** argv )
 {
   channel<int> sayHello, sayWorld, quitter;
 
-  std::async( std::launch::async, [&]
+  auto d = std::async( std::launch::async, [&]
       {
         for ( int i = 0; i < 1000; ++i )
         {
@@ -24,7 +24,7 @@ main( int argc, char ** argv )
         sayWorld << kQuit;
       } );
 
-  std::async( std::launch::async, [&]
+  auto b = std::async( std::launch::async, [&]
       {
         while ( true )
         {
@@ -32,7 +32,7 @@ main( int argc, char ** argv )
           sayWorld >> reply;
           if ( reply == kQuit )
             break;
-            std::cerr << "world!";
+            std::cerr << "world!\n";
           sayHello << kGo;
         }
         quitter << kDone;
