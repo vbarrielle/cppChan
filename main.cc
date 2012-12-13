@@ -25,12 +25,13 @@ main( int argc, char ** argv )
         for ( int i = 0; i < 1000; ++i )
         {
           std::cout << "Hello ";
+          fprintf( stderr, "%s to %p\n", "Hello: say go", &sayWorld );
           sayWorld << kGo;
-          std::cerr << "Hello: said go\n";
+          fprintf( stderr, "%s to %p\n", "Hello: said go", &sayWorld );
           int a;
-          std::cerr << "Hello: receive go\n";
+          fprintf( stderr, "%s from %p\n", "Hello: receive go", &sayHello );
           sayHello >> a;
-          std::cerr << "Hello: received go\n";
+          fprintf( stderr, "%s from %p\n", "Hello: received go", &sayHello );
         }
         sayWorld << kQuit;
       } );
@@ -40,15 +41,15 @@ main( int argc, char ** argv )
         while ( true )
         {
           int reply;
-          std::cerr << "World: receive go\n";
+          fprintf( stderr, "%s from %p\n", "World: receive go", &sayWorld );
           sayWorld >> reply;
-          std::cerr << "World: received go\n";
+          fprintf( stderr, "%s from %p\n", "World: received go", &sayWorld );
           if ( reply == kQuit )
             break;
           std::cout << "world!\n";
-          std::cerr << "World: say go\n";
+          fprintf( stderr, "%s to %p\n", "World: say go", &sayHello );
           sayHello << kGo;
-          std::cerr << "World: said go\n";
+          fprintf( stderr, "%s to %p\n", "World: said go", &sayHello );
         }
         quitter << kDone;
       } );
