@@ -10,7 +10,7 @@ template <typename T>
 class channel
 {
 public:
-  channel( int capacity = 0 );
+  channel( int capacity = 0, bool log = false );
 
   void operator<<( const T & val );
   void operator>>( T& retVal);
@@ -22,13 +22,14 @@ private:
   bool waitForWritter( );
   void unblockReader( );
   void unblockWritter( );
-  void unblock( std::atomic_bool & blocked, std::promise<void> & promise );
-  void wait( std::atomic_bool & blocked, std::promise<void> & promise );
+  void unblock( std::promise<void> & promise );
+  void wait( std::promise<void> & promise );
+  bool m_log;
+  void log( FILE* stream, channel * ptr, const char *msg)
+  { if ( m_log ) fprintf( stream, "%p %s\n", ptr, msg ); }
 
 private:
   int m_capacity;
-  std::atomic_bool m_blockedReader;
-  std::atomic_bool m_blockedWritter;
   std::queue<T> m_values;
   std::promise<T>    m_uniqueValue;
   std::promise<void> m_wantsValuePromise;
@@ -38,10 +39,9 @@ private:
 
 
 template <typename T>
-channel<T>::channel( int capacity ) :
+channel<T>::channel( int capacity, bool log ) :
   m_capacity( capacity ),
-  m_blockedReader( false ),
-  m_blockedWritter( false )
+  m_log( log )
 { }
 
 template <typename T>
@@ -139,42 +139,37 @@ channel<T>::sync_get( )
 
 template <typename T>
 void
-channel<T>::wait( std::atomic_bool & blocked, std::promise<void> & promise )
+channel<T>::wait( std::promise<void> & promise )
 {
-  bool falseVal = false;
-  if ( blocked.compare_exchange_strong( falseVal, true  ) )
-  {
-    auto resFuture = promise.get_future( );
-    fprintf( stderr, "%p %s\n", this, " wait: future get");
-    resFuture.get( );
-    fprintf( stderr, "%p %s\n", this, " wait: future retrieved");
-    std::promise<void> newPromise;
-    std::swap( promise, newPromise );
-  }
+  auto resFuture = promise.get_future( );
+  log( stderr, this, " wait: future get");
+  resFuture.get( );
+  log( stderr, this, " wait: future retrieved");
+  std::promise<void> newPromise;
+  std::swap( promise, newPromise );
 }
 
 template <typename T>
 void
-channel<T>::unblock( std::atomic_bool & blocked, std::promise<void> & promise )
+channel<T>::unblock( std::promise<void> & promise )
 {
-  bool trueVal = true;
-  if ( blocked.compare_exchange_strong( trueVal, false ) )
+  try
   {
-    promise.set_value( ); // FIXME: nothing guarantees the other thread
-                          // won't try to read before this set
-    fprintf( stderr, "%p %s\n", this, " unblock: was blocked");
-    return;
+    promise.set_value( );
   }
-  fprintf( stderr, "%p %s\n", this, " unblock: did not unblock");
+  catch ( std::future_error e )
+  {
+    return; // TODO: throw no_state
+  }
 }
 
 template <typename T>
 bool
 channel<T>::waitForReader( )
 {
-  fprintf( stderr, "%p %s\n", this, " waiting for a reader");
-  wait( m_blockedWritter, m_setsValuePromise );
-  fprintf( stderr, "%p %s\n", this, " found a reader");
+  log( stderr, this, " waiting for a reader");
+  wait( m_setsValuePromise );
+  log( stderr, this, " found a reader");
   return true;
 }
 
@@ -183,9 +178,9 @@ template <typename T>
 bool
 channel<T>::waitForWritter( )
 {
-  fprintf( stderr, "%p %s\n", this, " waiting for a writter");
-  wait( m_blockedReader, m_wantsValuePromise );
-  fprintf( stderr, "%p %s\n", this, " found a writter");
+  log( stderr, this, " waiting for a writter");
+  wait( m_wantsValuePromise );
+  log( stderr, this, " found a writter");
   return true;
 }
 
@@ -194,16 +189,16 @@ template <typename T>
 void
 channel<T>::unblockWritter( )
 {
-  fprintf( stderr, "%p %s\n", this, " unblocking a writter");
-  unblock( m_blockedWritter, m_setsValuePromise );
+  log( stderr, this, " unblocking a writter");
+  unblock( m_setsValuePromise );
 }
 
 template <typename T>
 void
 channel<T>::unblockReader( )
 {
-  fprintf( stderr, "%p %s\n", this, " unblocking a reader");
-  unblock( m_blockedReader, m_wantsValuePromise );
+  log( stderr, this, " unblocking a reader");
+  unblock( m_wantsValuePromise );
 }
 
 #endif // CPPCHAN_CHANNEL_H
