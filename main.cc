@@ -1,7 +1,16 @@
 #include <iostream>
 #include <string>
+#include <future>
 
+#if 1
+#define ATOMIC_CHANNEL
+#endif
+
+#ifdef ATOMIC_CHANNEL
+#include "atomic_channel.hh"
+#else
 #include "channel.hh"
+#endif
 
 static const int kGo = 0;
 static const int kQuit = 1;
