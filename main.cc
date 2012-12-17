@@ -19,7 +19,7 @@ static const int kDone = 2;
 int
 main( int argc, char ** argv )
 {
-  channel<int> sayHello(1), sayWorld(1), quitter(1);
+  channel<int> sayHello(0), sayWorld(0), quitter(0);
 
   std::cerr << "sayHello: " << &sayHello << "\n";
   std::cerr << "sayWorld: " << &sayWorld << "\n";
