@@ -10,8 +10,8 @@ class channel
 public:
   channel( int64_t capacity = 0 );
   ~channel( );
-  void operator<<( const T & val );
-  void operator>>( T& retVal);
+  void operator<<( const T & val ); //< send data to the channel
+  void operator>>( T& retVal); //< receive data from the channel
 
 private:
   T * m_data;
