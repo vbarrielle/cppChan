@@ -1,48 +1,63 @@
-#ifndef CPPCHAN_CHANNEL_H
-#define CPPCHAN_CHANNEL_H
+#ifndef CPPCHAN_ATOMIC_CHANNEL_H
+#define CPPCHAN_ATOMIC_CHANNEL_H
 
-#include <queue>
-#include <future>
+#include <atomic>
 #include <mutex>
+#include <chrono>
 #include <stdio.h>
 
 template <typename T>
 class channel
 {
 public:
-  channel( int capacity = 0, bool log = false );
+  channel( int64_t capacity = 0, bool log = false );
+  ~channel( );
 
   void operator<<( const T & val );
   void operator>>( T& retVal);
 
 private:
-  void sync_set( const T & val );
-  T sync_get( );
-  bool waitForReader( );
-  bool waitForWritter( );
-  void unblockReader( );
-  void unblockWritter( );
-  void unblock( std::promise<void> & promise );
-  void wait( std::promise<void> & promise );
-  bool m_log;
-  void log( FILE* stream, channel * ptr, const char *msg)
-  { if ( m_log ) fprintf( stream, "%p %s\n", ptr, msg ); }
-
-private:
-  int m_capacity;
-  std::queue<T> m_values;
-  std::promise<T>    m_uniqueValue;
-  std::promise<void> m_wantsValuePromise;
-  std::promise<void> m_setsValuePromise;
-  std::mutex m_queueMutex;
+  T * m_data;
+  const int64_t m_capacity;
+  const int64_t m_dataSize;
+  bool   m_log;
+  std::atomic<int64_t> m_counter;
+  std::mutex m_writeMutex;
+  std::mutex m_readMutex;
+  bool m_wantsToRead;
+  bool m_hasWritten;
 };
+
+static const int64_t kOneZero = 0x0000000100000000;
+static const int64_t kZeroOne = 1;
 
 
 template <typename T>
-channel<T>::channel( int capacity, bool log ) :
+channel<T>::channel( int64_t capacity, bool log ) :
   m_capacity( capacity ),
-  m_log( log )
-{ }
+  m_dataSize( capacity + 1 ),
+  m_log( log ),
+  m_counter( 0 ),
+  m_wantsToRead( false ),
+  m_hasWritten( false )
+{
+  if ( m_dataSize )
+    m_data = new T[m_dataSize];
+}
+
+template <typename T>
+channel<T>::~channel( )
+{
+  delete[] m_data;
+}
+
+int64_t queueSize( int64_t doubleInt, int64_t & doubleIntOut )
+{
+  doubleIntOut = doubleInt;
+  int64_t leftInt = doubleInt >> 32;
+  int64_t rightInt = doubleInt & 0x00000000ffffffff;
+  return rightInt - leftInt;
+}
 
 template <typename T>
 void
@@ -50,28 +65,25 @@ channel<T>::operator<<( const T & val )
 {
   if ( m_capacity == 0 )
   {
-    sync_set( val );
+    m_writeMutex.lock( );
+    while ( ! m_wantsToRead && m_hasWritten )
+    {
+      std::this_thread::yield( );
+    }
+    m_data[0] = val;
+    m_hasWritten = true;
+    m_wantsToRead = false;
+    m_writeMutex.unlock( );
     return;
   }
 
-  do 
-  {
-    bool pushed = false;
-    m_queueMutex.lock( );
-    if ( m_values.size( ) < (size_t) m_capacity )
-    {
-      m_values.push( val );
-      pushed = true;
-    }
-    m_queueMutex.unlock( );
+  int64_t counter;
+  while ( queueSize( m_counter.fetch_add( kZeroOne ), counter ) >= m_capacity )
+    m_counter.fetch_sub( kZeroOne );
 
-    if ( pushed )
-    {
-      unblockReader( );
-      return;
-    }
-  } while( waitForReader( ) );
+  int64_t right = counter & 0x00000000ffffffff;
 
+  m_data[right%(m_dataSize)] = val;
 }
 
 template <typename T>
@@ -79,126 +91,28 @@ void channel<T>::operator>>( T & retVal )
 {
   if ( m_capacity == 0 )
   {
-    retVal = sync_get( );
+    m_readMutex.lock( );
+    m_wantsToRead = true;
+    while( ! m_hasWritten && m_wantsToRead )
+    {
+      std::this_thread::yield( );
+    }
+    retVal = m_data[0];
+    m_hasWritten = false;
+    m_wantsToRead = false;
+    m_readMutex.unlock( );
     return;
   }
 
-  do 
-  {
-    T res;
-    bool pulled = false;
-    m_queueMutex.lock( );
-    if ( m_values.size( ) > 0 )
-    {
-      res = m_values.front( );
-      m_values.pop( );
-      pulled  = true;
-    }
-    m_queueMutex.unlock( );
+  int64_t counter;
+  while ( queueSize( m_counter.fetch_add( kOneZero ), counter ) < 1 )
+    m_counter.fetch_sub( kOneZero );
 
-    if ( pulled )
-    {
-      retVal = res;
-      unblockWritter( );
-      return;
-    }
-  } while ( waitForWritter( ) );
-}
+  int64_t left = counter >> 32;
 
-template <typename T>
-void
-channel<T>::sync_set( const T & val )
-{
-  // wait until there is a reader
-  auto wantsValueFuture = m_wantsValuePromise.get_future( );
-  wantsValueFuture.get( );
-
-  m_uniqueValue.set_value( val );
-
-  // reset the reader/writter sync
-  std::promise<void> newPromise;
-  std::swap( m_wantsValuePromise, newPromise );
-}
-
-template <typename T>
-T
-channel<T>::sync_get( )
-{
-  // inform we are reading
-  m_wantsValuePromise.set_value( );
-
-  auto resFuture = m_uniqueValue.get_future( );
-  T res = resFuture.get( );
-
-  // reset the unique value store
-  std::promise<T> newPromise;
-  std::swap( m_uniqueValue, newPromise );
-
-  return res;
-}
-
-template <typename T>
-void
-channel<T>::wait( std::promise<void> & promise )
-{
-  auto resFuture = promise.get_future( );
-  log( stderr, this, " wait: future get");
-  resFuture.get( );
-  log( stderr, this, " wait: future retrieved");
-  std::promise<void> newPromise;
-  std::swap( promise, newPromise );
-}
-
-template <typename T>
-void
-channel<T>::unblock( std::promise<void> & promise )
-{
-  try
-  {
-    promise.set_value( );
-  }
-  catch ( std::future_error e )
-  {
-    return; // TODO: throw no_state
-  }
-}
-
-template <typename T>
-bool
-channel<T>::waitForReader( )
-{
-  log( stderr, this, " waiting for a reader");
-  wait( m_setsValuePromise );
-  log( stderr, this, " found a reader");
-  return true;
+  retVal = m_data[left%(m_dataSize)];
 }
 
 
-template <typename T>
-bool
-channel<T>::waitForWritter( )
-{
-  log( stderr, this, " waiting for a writter");
-  wait( m_wantsValuePromise );
-  log( stderr, this, " found a writter");
-  return true;
-}
+#endif // CPPCHAN_ATOMIC_CHANNEL_H
 
-
-template <typename T>
-void
-channel<T>::unblockWritter( )
-{
-  log( stderr, this, " unblocking a writter");
-  unblock( m_setsValuePromise );
-}
-
-template <typename T>
-void
-channel<T>::unblockReader( )
-{
-  log( stderr, this, " unblocking a reader");
-  unblock( m_wantsValuePromise );
-}
-
-#endif // CPPCHAN_CHANNEL_H

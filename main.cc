@@ -2,15 +2,7 @@
 #include <string>
 #include <future>
 
-#if 1
-#define ATOMIC_CHANNEL
-#endif
-
-#ifdef ATOMIC_CHANNEL
-#include "atomic_channel.hh"
-#else
 #include "channel.hh"
-#endif
 
 static const int kGo = 0;
 static const int kQuit = 1;
@@ -54,5 +46,19 @@ main( int argc, char ** argv )
   int a;
   quitter >> a;
 
+  // test channel of capacity > 1
+
+  channel<int> chan( 6 );
+  for ( int i = 0; i < 6; ++i )
+    chan << i;
+
+  for ( int i = 0; i < 6; ++i )
+  {
+    int k;
+    chan >> k;
+    std::cerr << k << " ";
+  }
+  std::cerr << "\n";
+    
   return 0;
 }
