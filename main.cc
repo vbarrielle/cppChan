@@ -11,11 +11,7 @@ static const int kDone = 2;
 int
 main( int argc, char ** argv )
 {
-  channel<int> sayHello(0), sayWorld(0), quitter(0);
-
-  std::cerr << "sayHello: " << &sayHello << "\n";
-  std::cerr << "sayWorld: " << &sayWorld << "\n";
-  std::cerr << "quitter: " << &quitter << "\n";
+  channel<int> sayHello, sayWorld, quitter;
 
   auto d = std::async( std::launch::async, [&]
       {
@@ -46,19 +42,5 @@ main( int argc, char ** argv )
   int a;
   quitter >> a;
 
-  // test channel of capacity > 1
-
-  channel<int> chan( 6 );
-  for ( int i = 0; i < 6; ++i )
-    chan << i;
-
-  for ( int i = 0; i < 6; ++i )
-  {
-    int k;
-    chan >> k;
-    std::cerr << k << " ";
-  }
-  std::cerr << "\n";
-    
   return 0;
 }
