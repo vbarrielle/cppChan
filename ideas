@@ -1,9 +1,0 @@
-the reader sees an empty queue
-before it can wait, the writter adds an entry to the queue, and tries to unblock -but unblocks none-
-when the reader tries to wait, it can wait, but the wait is pointless
-
-maybe try by always setting the promise, and catching the exception?
-
-
-or an atomic counter indexing an array: thus the reader/writer know where to read without interference
-this has the advantage to respect the ordre specification : the first to arrive can get the oldest data
