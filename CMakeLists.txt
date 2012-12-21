@@ -5,7 +5,7 @@ project(cppChan )
 
 set(EXECUTABLE_OUTPUT_PATH .)
 
-set(PROJECT_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
+set(PROJECT_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include ${gtest_SOURCE_DIR}/include)
 
 include_directories("${PROJECT_INCLUDE_DIR}")
 include_directories("${PROJECT_SOURCE_DIR}")

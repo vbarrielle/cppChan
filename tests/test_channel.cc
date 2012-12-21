@@ -44,6 +44,7 @@ TEST( test_channel, blocks_when_full )
     for ( int j = 0; j < i+1; ++j )
       chan >> res;
     auto get = a.get( );
+    get += 1; // suppress warning...
 
     if ( !ok )
       break;
@@ -77,6 +78,7 @@ TEST( test_channel, blocks_when_empty )
     // unblock thread
     chan << 0;
     auto get = b.get( );
+    get += 1; // suppress warning...
 
     if ( !ok )
       break;
