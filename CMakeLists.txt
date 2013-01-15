@@ -22,3 +22,6 @@ target_link_libraries(
   test_channel
   gtest
 )
+
+enable_testing()
+add_test(TestChannel test_channel)
